@@ -53,11 +53,7 @@ import com.sk89q.worldedit.util.logging.WorldEditPrefixHandler;
 import com.sk89q.worldedit.world.registry.BundledBlockData;
 
 import javax.script.ScriptException;
-import java.io.DataInputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -711,27 +707,10 @@ public class WorldEdit {
             return;
         }
 
-        String script;
+        FileReader file;
 
         try {
-            InputStream file;
-
-            if (!f.exists()) {
-                file = WorldEdit.class.getResourceAsStream("craftscripts/" + filename);
-
-                if (file == null) {
-                    player.printError("Script does not exist: " + filename);
-                    return;
-                }
-            } else {
-                file = new FileInputStream(f);
-            }
-
-            DataInputStream in = new DataInputStream(file);
-            byte[] data = new byte[in.available()];
-            in.readFully(data);
-            in.close();
-            script = new String(data, 0, data.length, "utf-8");
+            file = new FileReader(filename);
         } catch (IOException e) {
             player.printError("Script read error: " + e.getMessage());
             return;
@@ -739,8 +718,7 @@ public class WorldEdit {
 
         LocalSession session = getSessionManager().get(player);
         CraftScriptContext scriptContext = new CraftScriptContext(this, getServer(), getConfiguration(), session, player, args);
-
-        CraftScriptEngine engine = null;
+        CraftScriptEngine engine;
 
         try {
             engine = new RhinoCraftScriptEngine();
@@ -758,7 +736,7 @@ public class WorldEdit {
         vars.put("player", player);
 
         try {
-            engine.evaluate(script, filename, vars);
+            engine.evaluate(file, filename, vars);
         } catch (ScriptException e) {
             player.printError("Failed to execute:");
             player.printRaw(e.getMessage());

@@ -19,17 +19,31 @@
 
 package com.sk89q.worldedit.scripting;
 
+import java.io.File;
+import java.io.FileReader;
+import java.net.URI;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import javax.script.ScriptException;
+
+import com.sk89q.worldedit.LocalConfiguration;
+import com.sk89q.worldedit.WorldEdit;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ImporterTopLevel;
 import org.mozilla.javascript.JavaScriptException;
 import org.mozilla.javascript.RhinoException;
-import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.ScriptableObject;
 import org.mozilla.javascript.WrappedException;
 
 import com.sk89q.worldedit.WorldEditException;
+import org.mozilla.javascript.commonjs.module.ModuleScriptProvider;
+import org.mozilla.javascript.commonjs.module.Require;
+import org.mozilla.javascript.commonjs.module.RequireBuilder;
+import org.mozilla.javascript.commonjs.module.provider.ModuleSourceProvider;
+import org.mozilla.javascript.commonjs.module.provider.SoftCachingModuleScriptProvider;
+import org.mozilla.javascript.commonjs.module.provider.UrlModuleSourceProvider;
+import org.mozilla.javascript.tools.shell.Global;
 
 public class RhinoCraftScriptEngine implements CraftScriptEngine {
     private int timeLimit;
@@ -45,19 +59,42 @@ public class RhinoCraftScriptEngine implements CraftScriptEngine {
     }
 
     @Override
-    public Object evaluate(String script, String filename, Map<String, Object> args)
+    public Object evaluate(FileReader file, String filename, Map<String, Object> args)
             throws ScriptException, Throwable {
+
+        Global global = new Global();
+
+        WorldEdit worldEdit = WorldEdit.getInstance();
+        LocalConfiguration config = worldEdit.getConfiguration();
+        File dir = worldEdit.getWorkingDirectoryFile(config.scriptsDir);
+
+        List<URI> paths = Arrays.asList(
+            dir.toURI()
+        );
+
         RhinoContextFactory factory = new RhinoContextFactory(timeLimit);
+
+        ModuleSourceProvider sourceProvider = new UrlModuleSourceProvider(paths, null);
+        ModuleScriptProvider scriptProvider = new SoftCachingModuleScriptProvider(sourceProvider);
+        RequireBuilder builder = new RequireBuilder();
+        builder.setSandboxed(false);
+        builder.setModuleScriptProvider(scriptProvider);
+
+        global.init(factory);
         Context cx = factory.enterContext();
-        ScriptableObject scriptable = new ImporterTopLevel(cx);
-        Scriptable scope = cx.initStandardObjects(scriptable);
+        cx.setLanguageVersion(170);
+
+        ScriptableObject scope = new ImporterTopLevel(cx);
+        Require require = builder.createRequire(cx, scope);
+        require.install(scope);
 
         for (Map.Entry<String, Object> entry : args.entrySet()) {
             ScriptableObject.putProperty(scope, entry.getKey(),
                     Context.javaToJS(entry.getValue(), scope));
         }
+
         try {
-            return cx.evaluateString(scope, script, filename, 1, null);
+            return cx.evaluateReader(scope, file, filename, 1, null);
         } catch (Error e) {
             throw new ScriptException(e.getMessage());
         } catch (RhinoException e) {
@@ -78,11 +115,13 @@ public class RhinoCraftScriptEngine implements CraftScriptEngine {
             }
 
             ScriptException scriptException =
-                    new ScriptException(msg, e.sourceName(), line);
+                new ScriptException(msg, e.sourceName(), line);
             scriptException.initCause(e);
 
             throw scriptException;
         } finally {
+            file.close();
+
             Context.exit();
         }
     }
